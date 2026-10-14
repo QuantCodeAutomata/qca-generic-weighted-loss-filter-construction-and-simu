@@ -1,0 +1,142 @@
+{
+  "convergence": {
+    "rows": [
+      {
+        "scenario": "absolute_exp_lam0.9",
+        "loss": "absolute",
+        "B": 100,
+        "mae": 0.1409030177464487
+      },
+      {
+        "scenario": "absolute_exp_lam0.9",
+        "loss": "absolute",
+        "B": 500,
+        "mae": 0.06399152266061134
+      },
+      {
+        "scenario": "absolute_exp_lam0.9",
+        "loss": "absolute",
+        "B": 5000,
+        "mae": 0.017704087011384574
+      },
+      {
+        "scenario": "absolute_exp_lam0.9",
+        "loss": "absolute",
+        "B": 50000,
+        "mae": 0.006374894975669004
+      },
+      {
+        "scenario": "squared_unif_ell15",
+        "loss": "squared",
+        "B": 100,
+        "mae": 1.1365473653499278
+      },
+      {
+        "scenario": "squared_unif_ell15",
+        "loss": "squared",
+        "B": 500,
+        "mae": 0.4920730752519404
+      },
+      {
+        "scenario": "squared_unif_ell15",
+        "loss": "squared",
+        "B": 5000,
+        "mae": 0.15532250034648323
+      },
+      {
+        "scenario": "squared_unif_ell15",
+        "loss": "squared",
+        "B": 50000,
+        "mae": 0.048582069272884186
+      },
+      {
+        "scenario": "huber_hyp_a10",
+        "loss": "huber",
+        "B": 100,
+        "mae": 0.24999230795329816
+      },
+      {
+        "scenario": "huber_hyp_a10",
+        "loss": "huber",
+        "B": 500,
+        "mae": 0.11324593808645268
+      },
+      {
+        "scenario": "huber_hyp_a10",
+        "loss": "huber",
+        "B": 5000,
+        "mae": 0.035903357736512785
+      },
+      {
+        "scenario": "huber_hyp_a10",
+        "loss": "huber",
+        "B": 50000,
+        "mae": 0.011050357844285031
+      },
+      {
+        "scenario": "bernoulli_exp_lam0.9",
+        "loss": "bernoulli",
+        "B": 100,
+        "mae": 0.017228379864948552
+      },
+      {
+        "scenario": "bernoulli_exp_lam0.9",
+        "loss": "bernoulli",
+        "B": 500,
+        "mae": 0.008009702151034307
+      },
+      {
+        "scenario": "bernoulli_exp_lam0.9",
+        "loss": "bernoulli",
+        "B": 5000,
+        "mae": 0.0024916525632888964
+      },
+      {
+        "scenario": "bernoulli_exp_lam0.9",
+        "loss": "bernoulli",
+        "B": 50000,
+        "mae": 0.0007599694688250501
+      }
+    ],
+    "Bs": [
+      100,
+      500,
+      5000,
+      50000
+    ]
+  },
+  "stratified_vs_exact": {
+    "absolute": 3.239194538031498e-05,
+    "squared": 0.0008114804893280487,
+    "huber": 7.97784755604274e-05
+  },
+  "runtime": {
+    "rows": [
+      {
+        "T": 100,
+        "seconds": 0.006007063027936965,
+        "per_point_us": 60.07063027936965
+      },
+      {
+        "T": 300,
+        "seconds": 0.020920167968142778,
+        "per_point_us": 69.73389322714259
+      },
+      {
+        "T": 1000,
+        "seconds": 0.0792372589930892,
+        "per_point_us": 79.2372589930892
+      },
+      {
+        "T": 3000,
+        "seconds": 0.2679528250009753,
+        "per_point_us": 89.31760833365843
+      },
+      {
+        "T": 10000,
+        "seconds": 1.922079267038498,
+        "per_point_us": 192.2079267038498
+      }
+    ]
+  }
+}
