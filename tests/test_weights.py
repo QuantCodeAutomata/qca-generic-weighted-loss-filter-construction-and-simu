@@ -8,7 +8,6 @@ from scipy.special import digamma
 
 from src.weights import (
     SuperpositionSpec,
-    anchored_weights,
     exponential_cum_weight,
     exponential_inv_cum_weight,
     exponential_weights,
@@ -60,16 +59,6 @@ def test_hyperbolic_weights_sum_and_formula():
     assert np.isclose(w.sum(), 1.0)
     n_t = digamma(t + a) - digamma(a)
     assert np.isclose(w[0], (1.0 / a) / n_t)
-
-
-def test_anchored_weights_bounds():
-    w = anchored_weights(t=100, ell=10, alpha=0.5, T=1000)
-    assert np.all(w >= 0.0)
-    assert np.isclose(w.sum(), 1.0)
-    # Alpha=1 should reduce to uniform
-    w1 = anchored_weights(t=100, ell=10, alpha=1.0, T=1000)
-    w_unif = uniform_weights(100, 10)
-    assert np.allclose(w1, w_unif)
 
 
 def test_superposition_mix_sums_to_one():

@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-from src.filters import exact_filter, simulated_filter, stratified_filter
+from src.filters import anchored_median_filter, exact_filter, simulated_filter, stratified_filter
 from src.weights import (
     exponential_inv_cum_weight,
     exponential_weights,
@@ -101,3 +101,47 @@ def test_approximate_linear_time_scaling():
     # given measurement noise on a tiny benchmark)
     ratio = times[1500] / max(times[500], 1e-9)
     assert ratio < 5 * (1500 / 500)
+
+
+def test_anchored_median_endpoints():
+    Y = np.random.default_rng(3).standard_cauchy(60)
+    roll = exact_filter(Y, lambda t: uniform_weights(t, 4), loss_name="absolute")
+    assert np.allclose(anchored_median_filter(Y, 4, 1.0), roll)
+    assert np.allclose(anchored_median_filter(Y, 4, 0.0), np.median(Y))
+
+
+def test_lag_samplers_follow_the_weights():
+    from src.filters import exponential_lag_sampler, hyperbolic_lag_sampler
+    from src.weights import exponential_weights, hyperbolic_weights
+
+    rng = np.random.default_rng(0)
+    for draw, w in ((exponential_lag_sampler(0.8), exponential_weights(60, 0.8)),
+                    (hyperbolic_lag_sampler(3.0), hyperbolic_weights(60, 3.0))):
+        k = draw(rng, 60, 400_000)
+        freq = np.bincount(k, minlength=60) / len(k)
+        assert np.abs(freq - w).max() < 3e-3
+        tail = draw(rng, 60, 1000, lo=20)
+        assert tail.min() >= 20 and tail.max() <= 59
+
+
+def test_fast_stratified_matches_exact_for_squared_loss_in_expectation():
+    from src.filters import stratified_exponential_filter
+    from src.weights import exponential_weights
+
+    rng = np.random.default_rng(1)
+    Y = rng.standard_normal(300)
+    exact = exact_filter(Y, lambda t: exponential_weights(t, 0.9), loss_name="squared")
+    strat = stratified_exponential_filter(Y, 0.9, "squared", B=100, rng=np.random.default_rng(2))
+    assert np.max(np.abs(exact - strat)) < 1e-2
+
+
+def test_hf_median_tie_after_a_three_trade_jump():
+    """With lam**3 = 1/2 the newest three trades win the exact tie, B or not."""
+    from src.hf_filters import exponential_median
+
+    for jump in (-0.5, 0.5):
+        y = np.r_[np.zeros(400), np.full(3, jump), 0.0]
+        for B in (0, 100):
+            m = exponential_median(y, 3, B=B, seed=5)
+            assert m[402] == jump
+            assert m[401] == 0.0

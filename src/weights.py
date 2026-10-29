@@ -20,10 +20,6 @@ import numpy as np
 from scipy.special import digamma
 
 
-# Custom implementation --- Context7 confirms no library equivalent exists
-# for these specific weight schemes with the inverse-CDF properties needed.
-
-
 def uniform_weights(t: int, ell: int) -> np.ndarray:
     """Uniform window weights ``w_{t,j} = 1(j <= ell)/min(t, 1+ell)``.
 
@@ -135,22 +131,6 @@ class SuperpositionSpec:
         for alpha, comp in zip(self.alphas, self.components):
             w += alpha * comp(t)
         return w
-
-
-def anchored_weights(t: int, ell: int, alpha: float, T: int) -> np.ndarray:
-    """Anchored weights (paper Part B stationary design):
-
-    ``w_{t,j} = (1 - alpha)/T + alpha * 1(0 <= j <= ell)/min(t, 1+ell)``.
-    """
-    if not (0.0 <= alpha <= 1.0):
-        raise ValueError("alpha must lie in [0, 1]")
-    if T <= 0:
-        raise ValueError("T must be positive")
-    base_unif = uniform_weights(t, ell)
-    anchor = np.full(t, (1.0 - alpha) / T, dtype=np.float64)
-    w = anchor + alpha * base_unif
-    # Normalize to remove tiny floating drift; the model is well-defined.
-    return w / w.sum()
 
 
 def validate_weights(w: np.ndarray, atol: float = 1e-10) -> None:

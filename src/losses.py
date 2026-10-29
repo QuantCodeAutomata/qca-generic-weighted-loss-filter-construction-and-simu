@@ -86,10 +86,8 @@ def weighted_median(
         2. Sort by ``y``.
         3. If ``collapse_ties`` is True, collapse repeated y's by summing weights.
         4. Compute cumulative weights normalized to sum to 1.
-        5. Locate the median crossing at cumulative weight 0.5.
-        6. If a bucket exactly straddles 0.5 (crosses) -> return that y.
-        7. If a bucket boundary equals 0.5 (plateau) -> apply Hazen interpolation
-           between the lower and upper bounds.
+        5. Place each value at its jump midpoint ``cum - w/2`` and interpolate
+           linearly at 0.5, which is continuous in the weights.
 
     When ``interpolation == 'lower'`` the smallest value whose cumulative weight
     is >= 0.5 is returned (the paper's "smallest value reaching half the total
@@ -127,44 +125,17 @@ def weighted_median(
         idx = min(idx, len(y) - 1)
         return float(y[idx])
 
-    # Hazen / type-5 interpolation. ``cum[i]`` is upper cumulative at value y[i];
-    # lower cumulative at value y[i] is cum[i-1] (or 0 for i=0).
-    #
-    # Find first index where cum > 0.5 (strict).  Call it ``u``.
-    # The lower-bound value theta_lo has F_lo = cum[u-1] (or 0), F_up = cum[u].
-    # The upper-bound value theta_up is y[u].
-    # If F_lo < 0.5 < F_up (strict crossing), there is no ambiguity, return y[u].
-    # If F_lo == 0.5 exactly (plateau), interpolate between y[u-1] and y[u]
-    # using Hazen: theta = ((F_up - 0.5)/(F_up - F_lo)) * y[u-1]
-    #                   + ((0.5 - F_lo)/(F_up - F_lo)) * y[u].
-    # (The second term is zero in the plateau case; the first gives y[u-1].)
-    # For practical floating purposes we treat near-plateau (|F_lo - 0.5|<eps)
-    # as a plateau and interpolate.
-    eps = 1e-12
-    u = int(np.searchsorted(cum, 0.5, side="right"))
-    if u >= len(y):
-        u = len(y) - 1
-    F_up = cum[u]
-    F_lo = cum[u - 1] if u > 0 else 0.0
-    # Plateau case: cumulative mass hits exactly 0.5 at the boundary
-    # between y[u-1] and y[u]. Then theta_lo = y[u-1], theta_up = y[u],
-    # and the formula weighs them according to the paper.
-    if u > 0 and abs(cum[u - 1] - 0.5) < eps:
-        theta_lo = y[u - 1]
-        theta_up = y[u]
-        # F_lo for the plateau: the mass up to but excluding y[u-1]; and
-        # F_up is cum[u]. The Hazen formula collapses to a simple average
-        # weighted by neighbouring mass.
-        F_lo_plat = cum[u - 2] if u >= 2 else 0.0
-        F_up_plat = cum[u]
-        denom = F_up_plat - F_lo_plat
-        if denom <= eps:
-            return float(0.5 * (theta_lo + theta_up))
-        w_lo = (F_up_plat - 0.5) / denom
-        w_up = (0.5 - F_lo_plat) / denom
-        return float(w_lo * theta_lo + w_up * theta_up)
-    # Strict crossing within bucket u -> median value is y[u].
-    return float(y[u])
+    # Hazen / type 5 (Remark 3): each support point sits at the midpoint of its
+    # CDF jump, ``F = (F(y) + F(y-)) / 2``, and the median interpolates linearly
+    # between the two adjacent points bracketing 0.5 (endpoints clamp).
+    mid = cum - 0.5 * w
+    if len(y) == 1 or mid[0] >= 0.5:
+        return float(y[0])
+    if mid[-1] <= 0.5:
+        return float(y[-1])
+    k = int(np.searchsorted(mid, 0.5, side="right")) - 1
+    lo, up = mid[k], mid[k + 1]
+    return float(((up - 0.5) * y[k] + (0.5 - lo) * y[k + 1]) / (up - lo))
 
 
 def weighted_huber(

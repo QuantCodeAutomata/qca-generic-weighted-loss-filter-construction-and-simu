@@ -14,17 +14,13 @@ __pycache__/
 .venv/
 venv/
 
-# Downloaded raw market-data cache (NOT a deliverable).
-# `data/raw/` is a local Massive API cache populated by src.data_loader; it must
-# never be committed. The `results/` directory holds the actual deliverables.
-data/raw/
-data/raw/**
-*.parquet
+# Local data caches: downloaded trade tapes and filtered sessions.
+data/cache/
+
+# Console logs of a run (results/expN.log). The numbers are in the JSON files.
+*.log
 
 # Editor
 .vscode/
 .idea/
 .DS_Store
-
-# Logs
-*.log

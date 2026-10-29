@@ -64,6 +64,13 @@ def test_weighted_median_hazen_plateau():
     assert np.isclose(out, 5.0)
 
 
+def test_weighted_median_hazen_interpolates_unequal_weights():
+    # Jump midpoints 0.15, 0.45, 0.80 -> 2 + 0.05 / 0.35.
+    y = np.array([1.0, 2.0, 3.0])
+    w = np.array([0.3, 0.3, 0.4])
+    assert np.isclose(weighted_median(y, w), 2.0 + 0.05 / 0.35)
+
+
 def test_weighted_median_lower_selects_smallest():
     y = np.array([0.0, 10.0])
     w = np.array([0.5, 0.5])

@@ -17,6 +17,11 @@ Three estimators are provided:
        objective.
     3. ``stratified_filter`` -- for ``alpha = 1``, compute the heaviest
        weights exactly up to ``h = W_t^{-1}(0.999)`` and MC-sample only the tail.
+
+``anchored_median_filter`` is the two-step anchored median of Section 2.4.2.
+``simulated_filter_fast`` and ``stratified_exponential_filter`` are the same
+estimators with the O(1) lag samplers of Section 3.4, used for the runtime
+and Theorem 2 checks.
 """
 
 from __future__ import annotations
@@ -102,6 +107,26 @@ def exact_filter(
             theta[t - 1] = weighted_bernoulli_prob(y_win, w)
         else:
             raise ValueError(f"unknown loss: {loss_name}")
+    return theta
+
+
+def anchored_median_filter(Y: np.ndarray, ell: int, alpha: float) -> np.ndarray:
+    """Ex. 7(b) weighted median with ``F_t = (1-alpha) ECDF(Y_{1:T}) + alpha * rolling``.
+
+    ``w_{t,j} = (1-alpha)/T + alpha 1(0<=j<=ell)/min(t,1+ell)`` for
+    ``j in {t-T,...,t-1}``: the anchor covers the whole sample, future included.
+    """
+    if not (0.0 <= alpha <= 1.0):
+        raise ValueError("alpha must lie in [0, 1]")
+    Y = np.asarray(Y, dtype=np.float64)
+    T = len(Y)
+    w_anchor = np.full(T, (1.0 - alpha) / T)
+    theta = np.empty(T, dtype=np.float64)
+    for t in range(1, T + 1):
+        win = Y[max(0, t - 1 - ell):t]
+        w_win = np.full(len(win), alpha / len(win))
+        theta[t - 1] = weighted_median(np.concatenate([win, Y]),
+                                       np.concatenate([w_win, w_anchor]))
     return theta
 
 
@@ -286,6 +311,152 @@ def stratified_filter(
             theta[t - 1] = weighted_median(y_aug, w_aug, interpolation=interpolation)
         elif loss_name == "huber":
             theta[t - 1] = weighted_huber(y_aug, w_aug, delta=d_aug)
+        elif loss_name == "bernoulli":
+            theta[t - 1] = weighted_bernoulli_prob(y_aug, w_aug)
+        else:
+            raise ValueError(f"unknown loss: {loss_name}")
+    return theta
+
+
+# ---------------------------------------------------------------------------
+# O(1)-per-t lag samplers (Section 3.4) and the matching fast estimators
+# ---------------------------------------------------------------------------
+
+def exponential_lag_sampler(lam: float) -> LagSampler:
+    """Inverse-transform draws of ``j`` with ``P(j = k) ∝ lam**k``, ``k = lo..t-1``.
+
+    The truncated geometric quantile is closed form, so a draw costs O(1) in t.
+    """
+    log_lam = np.log(lam)
+
+    def draw(rng: np.random.Generator, t: int, B: int, lo: int = 0) -> np.ndarray:
+        n = t - lo
+        u = rng.random(B)
+        g = np.floor(np.log1p(-u * (1.0 - lam ** n)) / log_lam).astype(np.int64)
+        return lo + np.clip(g, 0, n - 1)
+
+    return draw
+
+
+def _inv_digamma(y: np.ndarray) -> np.ndarray:
+    """Solve ``digamma(x) = y`` by Newton's method (Minka's starting point)."""
+    from scipy.special import digamma, polygamma
+
+    y = np.asarray(y, dtype=np.float64)
+    x = np.where(y >= -2.22, np.exp(y) + 0.5, -1.0 / (y + 0.5772156649015329))
+    for _ in range(6):
+        x = x - (digamma(x) - y) / polygamma(1, x)
+    return x
+
+
+def hyperbolic_lag_sampler(a: float) -> LagSampler:
+    """Draws with ``P(j = k) ∝ 1/(k + a)``, ``k = lo..t-1``, by the digamma quantile.
+
+    ``W(k) ∝ Ψ(k + 1 + a) − Ψ(lo + a)``; the inverse digamma gives the lag
+    in O(1), and one integer step either side fixes the rounding.
+    """
+    from scipy.special import digamma
+
+    def draw(rng: np.random.Generator, t: int, B: int, lo: int = 0) -> np.ndarray:
+        base = digamma(lo + a)
+        span = digamma(t + a) - base
+        u = rng.random(B)
+        target = base + u * span
+        k = np.ceil(_inv_digamma(target) - 1.0 - a).astype(np.int64)
+        k = np.clip(k, lo, t - 1)
+        # Smallest k with Ψ(k + 1 + a) >= target.
+        up = digamma(k + 1 + a) < target
+        k = np.where(up, k + 1, k)
+        down = (k > lo) & (digamma(k + a) >= target)
+        k = np.where(down, k - 1, k)
+        return np.clip(k, lo, t - 1)
+
+    return draw
+
+
+def _solve_uniform(loss_name: str, y: np.ndarray, delta: Optional[np.ndarray], median: str) -> float:
+    if loss_name == "squared":
+        return float(y.mean())
+    if loss_name == "absolute":
+        if median == "lower":
+            s = np.sort(y)
+            return float(s[(len(s) + 1) // 2 - 1])
+        return weighted_median(y, np.full(len(y), 1.0 / len(y)))
+    if loss_name == "huber":
+        return weighted_huber(y, np.full(len(y), 1.0 / len(y)), delta=delta)
+    if loss_name == "bernoulli":
+        return float(np.clip(y.mean(), 1e-12, 1 - 1e-12))
+    raise ValueError(f"unknown loss: {loss_name}")
+
+
+def simulated_filter_fast(
+    Y: np.ndarray,
+    sampler: LagSampler,
+    loss_name: str = "absolute",
+    *,
+    B: int = 500,
+    rng: Optional[np.random.Generator] = None,
+    delta: float = 1.345,
+    median: str = "lower",
+) -> np.ndarray:
+    """Definition 3 with ``alpha = 1``: ``B`` lag draws per ``t`` at O(B) cost.
+
+    ``median="lower"`` takes the smallest value reaching half the draws (the
+    convention of Theorem 2); ``"hazen"`` interpolates as in Remark 3.
+    """
+    Y = np.asarray(Y, dtype=np.float64)
+    if rng is None:
+        rng = np.random.default_rng(0)
+    theta = np.empty(len(Y), dtype=np.float64)
+    d = np.full(B, float(delta))
+    for t in range(1, len(Y) + 1):
+        lags = sampler(rng, t, B)
+        theta[t - 1] = _solve_uniform(loss_name, Y[t - 1 - lags], d, median)
+    return theta
+
+
+def stratified_exponential_filter(
+    Y: np.ndarray,
+    lam: float,
+    loss_name: str = "absolute",
+    *,
+    B: int = 100,
+    p_head: float = 0.999,
+    rng: Optional[np.random.Generator] = None,
+    delta: float = 1.345,
+    interpolation: str = "lower",
+) -> np.ndarray:
+    """Remark 4(d) for exponential weights without materialising ``w_{t,0:t-1}``.
+
+    The head ``h = W_t^{-1}(p_head)`` comes from the closed-form quantile and
+    the tail draws from ``exponential_lag_sampler``, so each ``t`` costs
+    O(h + B), independent of ``t``.
+    """
+    from .weights import exponential_inv_cum_weight
+
+    Y = np.asarray(Y, dtype=np.float64)
+    if rng is None:
+        rng = np.random.default_rng(0)
+    draw = exponential_lag_sampler(lam)
+    theta = np.empty(len(Y), dtype=np.float64)
+    for t in range(1, len(Y) + 1):
+        h = exponential_inv_cum_weight(p_head, t, lam)
+        n_t = (1.0 - lam ** t) / (1.0 - lam)
+        head_w = lam ** np.arange(h + 1) / n_t
+        y_head = Y[t - 1 - np.arange(h + 1)]
+        tail_mass = max(0.0, 1.0 - float(head_w.sum()))
+        if h < t - 1 and tail_mass > 0.0:
+            lags = draw(rng, t, B, lo=h + 1)
+            y_aug = np.concatenate([y_head, Y[t - 1 - lags]])
+            w_aug = np.concatenate([head_w, np.full(B, tail_mass / B)])
+        else:
+            y_aug, w_aug = y_head, head_w
+        if loss_name == "squared":
+            theta[t - 1] = weighted_mean(y_aug, w_aug)
+        elif loss_name == "absolute":
+            theta[t - 1] = weighted_median(y_aug, w_aug, interpolation=interpolation)
+        elif loss_name == "huber":
+            theta[t - 1] = weighted_huber(y_aug, w_aug, delta=float(delta))
         elif loss_name == "bernoulli":
             theta[t - 1] = weighted_bernoulli_prob(y_aug, w_aug)
         else:

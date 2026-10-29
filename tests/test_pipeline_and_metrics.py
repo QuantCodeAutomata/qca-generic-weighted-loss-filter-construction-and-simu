@@ -12,7 +12,7 @@ from src.metrics import (
     s_second_diff_stats,
     tracking_error,
 )
-from src.synthetic import nonstationary_cauchy
+from data.generate_synthetic import nonstationary_cauchy
 
 
 def test_predictive_absolute_loss_zero_for_perfect_predictor():
@@ -60,10 +60,12 @@ def test_linear_exponential_filter_recursion():
     Y = np.array([1.0, 2.0, 3.0, 4.0])
     out = linear_exponential_filter(Y, halflife=3)
     lam = 2.0 ** (-1 / 3)
-    expected = [Y[0]]
-    for y in Y[1:]:
-        expected.append(lam * expected[-1] + (1.0 - lam) * y)
-    assert np.allclose(out, expected)
+    # Finite-sample weights, endpoints fixed at the observations.
+    assert out[0] == Y[0]
+    assert out[-1] == Y[-1]
+    assert np.isclose(out[1], (Y[1] + lam * Y[0]) / (1.0 + lam))
+    denom = 1.0 + lam + lam ** 2
+    assert np.isclose(out[2], (Y[2] + lam * Y[1] + lam ** 2 * Y[0]) / denom)
 
 
 def test_run_pipeline_on_synthetic_series_executes_cleanly():
@@ -76,7 +78,7 @@ def test_run_pipeline_on_synthetic_series_executes_cleanly():
     assert res.m.shape == Y.shape
     assert res.delta.shape == Y.shape
     assert np.all(res.delta > 0)
-    # Huber should be more robust than linear: compare RMSE against a crude trend
+    # The Huber path must remove most of the Cauchy noise.
     assert np.std(res.theta) < np.std(Y) * 0.5
 
 
@@ -88,3 +90,33 @@ def test_run_pipeline_median_boundaries():
     assert res.m[-1] == Y[-1]
     assert res.theta[0] == Y[0]
     assert res.theta[-1] == Y[-1]
+
+
+def test_signature_vol_matches_table2_helper():
+    from src.metrics import signature_vol
+
+    rng = np.random.default_rng(4)
+    tau = np.sort(rng.uniform(0.0, 500.0, 3000))
+    x = np.cumsum(rng.standard_normal(3000) * 1e-4)
+    for s in (1.0, 10.0):
+        ref = s_second_diff_stats(tau, x, s_list=(s,))[s]["annualized_vol"]
+        assert np.isclose(signature_vol(tau, x, s), ref)
+
+
+def test_binomial_filter_is_a_normalised_clock_mean():
+    from src.hf_filters import clock_binomial_filter
+
+    tau = np.array([0.0, 1.0, 3.0, 4.0])
+    d = np.array([1.0, 0.0, 1.0, 0.0])
+    p = clock_binomial_filter(tau, d, 2.0)
+    w = 2.0 ** (-(tau[-1] - tau) / 2.0)
+    assert np.isclose(p[-1], np.sum(w * d) / np.sum(w))
+
+
+def test_pipeline_tail_draws_are_reproducible():
+    Y, _ = nonstationary_cauchy(T=500, seed=3)
+    tau = np.arange(len(Y), dtype=np.float64) * 0.2
+    a = run_pipeline(tau, Y, B=100, seed=9, T60=100)
+    b = run_pipeline(tau, Y, B=100, seed=9, T60=100)
+    assert np.array_equal(a.theta, b.theta)
+    assert np.array_equal(a.m, b.m)
